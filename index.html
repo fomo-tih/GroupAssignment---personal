@@ -1,0 +1,321 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Home â€” Road Safety Enforcement</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- NAV -->
+  <header class="global-nav">
+    <nav class="nav-wrap">
+            <a href="index.html" class="logo" aria-label="Home">
+        <img src="Images/2022-australia-new-logo-design-removebg-preview.png" alt="Road Safety Enforcement logo" width="36" height="36" decoding="async" />
+      </a>
+      <ul class="menu" role="menubar">
+        <li class="menu-item"><a aria-current="page" href="index.html">Home</a></li>
+        <li class="menu-item"><a href="about.html">About Us</a></li>
+        <li class="menu-item dropdown">
+          <a href="#" class="trigger" aria-haspopup="true" aria-expanded="false">Analytics</a>
+          <div class="panel" role="menu">
+            <a href="fines.html" role="menuitem">Fines</a>
+            <a href="positive_breath_tests.html" role="menuitem">Positive Breath Tests</a>
+            <a href="positive_drug_tests.html" role="menuitem">Positive Drug Tests</a>
+            <a href="alcohol_drug_tests.html" role="menuitem">Alcohol &amp; Drug Tests</a>
+          </div>
+        </li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- HEADER -->
+  <main>
+    <section class="contain" style="padding:36px 0 8px">
+      <h1 style="margin:0;font-size:clamp(28px,6vw,48px);line-height:1.06">Road Safety Enforcement</h1>
+      <p class="sub" style="max-width:780px;margin:8px 0 0">
+        Hover to see values. Use the buttons to switch datasets. â€œNo Dataâ€ clears the map.
+      </p>
+    </section>
+
+    <!-- MAP + BUTTONS -->
+    <section class="section contain" style="padding-top:18px">
+      <div class="map-card card">
+        <div id="map-aus" class="map-wrap"></div>
+        <div id="map-tooltip" class="map-tooltip" role="tooltip" aria-hidden="true"></div>
+
+        <!-- bottom-left buttons -->
+        <div class="map-buttons">
+          <button data-ds="empty" class="active">No Data</button>
+          <button data-ds="breath">Positive Breath Tests</button>
+          <button data-ds="drug">Positive Drug Tests</button>
+          <button data-ds="alcohol">Alcohol &amp; Drug Tests</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="contain footer">
+    <p>Â© 2025 Group 32 â€” Road Safety Enforcement</p>
+  </footer>
+
+  <!-- D3 + MAP SCRIPT -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+  (() => {
+    // ===== Paths (match your folder tree) =====
+    const GEO_URL = "data/aus-states.geojson";
+    const DATASETS = {
+      // Dark & muted color ramps (eye-friendly)
+      breath:  { file: "csv/data 2 - positive breath test.csv",  label: "Positive Breath Tests",  color: t => d3.interpolateRgb("#0e2922","#7aa294")(t), format: d3.format(",") },
+      drug:    { file: "csv/data 2 - positive drug test.csv",    label: "Positive Drug Tests",    color: t => d3.interpolateRgb("#2b1a12","#b98a6e")(t), format: d3.format(",") },
+      alcohol: { file: "csv/data 2 - alcohol and drug test.csv", label: "Alcohol & Drug Tests",   color: t => d3.interpolateRgb("#1d1730","#b7a3d9")(t), format: d3.format(",") },
+      empty:   { file: null, label: "No Data", color: () => "rgba(255,255,255,0.06)", format: d3.format(",") }
+    };
+
+    const wrap    = d3.select("#map-aus");
+    const tooltip = d3.select("#map-tooltip");
+    const buttons = d3.selectAll(".map-buttons button");
+
+    let svg, g, features, projection, path;
+    let cached = {};                 // key -> { map: Map(state->value), year: number|null }
+    let currentDataset = "empty";    // default to No Data
+    let currentMap = new Map();
+    let currentYear = null;
+
+    // ===== Helpers =====
+    const stdState = (s) => {
+      const aliases = {
+        "nsw":"New South Wales","vic":"Victoria","qld":"Queensland","sa":"South Australia",
+        "wa":"Western Australia","tas":"Tasmania","nt":"Northern Territory","act":"Australian Capital Territory"
+      };
+      if (!s) return "";
+      const t = String(s).trim();
+      const k = t.toLowerCase();
+      return aliases[k] || t.replace(/\s+/g," ");
+    };
+
+    const parseNum = (v) => {
+      if (v == null) return NaN;
+      const s = String(v).replace(/,/g,"").trim();
+      if (!s || /^n\/?a$/i.test(s)) return NaN;
+      const n = +s;
+      return Number.isFinite(n) ? n : NaN;
+    };
+
+    function banner(msg){
+      let box = wrap.select(".map-error");
+      if (box.empty()) box = wrap.append("div").attr("class","map-error");
+      box.text(msg);
+      console.warn("[Map]", msg);
+    }
+
+    function detectColumns(rows){
+      if (!rows.length) return {stateCol:null, yearCol:null, valueCol:null};
+      const cols = Object.keys(rows[0]);
+
+      const stateCol =
+        cols.find(c => /^(jurisdiction|state|jurisdiction_name)$/i.test(c)) ||
+        cols.find(c => /name/i.test(c)) || null;
+
+      const yearCol =
+        cols.find(c => /^year$/i.test(c)) ||
+        cols.find(c => /(\bcalendar\b|\bfiscal\b).*year/i.test(c)) || null;
+
+      // Prefer obvious numeric columns; fallback to most-numeric
+      const preferred = [
+        /^(value|count|total|number|cases|tests|positives?)$/i,
+        /(positive).*breath|breath.*positive/i,
+        /(positive).*drug|drug.*positive/i
+      ];
+      let valueCol = null;
+      for (const r of preferred){
+        const hit = cols.find(c => r.test(c));
+        if (hit) { valueCol = hit; break; }
+      }
+      if (!valueCol){
+        const numericScore = (c) => rows.reduce((acc,r)=> acc + (Number.isFinite(parseNum(r[c]))?1:0), 0);
+        const scored = cols
+          .filter(c => c !== stateCol && c !== yearCol)
+          .map(c => [c, numericScore(c)])
+          .sort((a,b)=> a[1]-b[1]);
+        if (scored.length && scored.at(-1)[1] > 0) valueCol = scored.at(-1)[0];
+      }
+      console.log("[DetectColumns]", { stateCol, yearCol, valueCol, cols });
+      return { stateCol, yearCol, valueCol };
+    }
+
+    async function ensureDataset(key){
+      if (cached[key]) return;
+      const cfg = DATASETS[key];
+      if (!cfg.file){ cached[key] = { map:new Map(), year:null }; return; }
+
+      let rows = await d3.csv(cfg.file).catch(e => (console.error(e), []));
+      if (!rows.length){ cached[key] = { map:new Map(), year:null }; return; }
+
+      const { stateCol, yearCol, valueCol } = detectColumns(rows);
+      if (!stateCol || !valueCol){
+        banner(`Couldnâ€™t detect columns in ${cfg.file}. Ensure it has state & value columns.`);
+        cached[key] = { map:new Map(), year:null };
+        return;
+      }
+
+      let targetYear = null;
+      if (yearCol){
+        const years = rows.map(r => parseNum(r[yearCol])).filter(Number.isFinite);
+        if (years.length) targetYear = d3.max(years);
+        if (Number.isFinite(targetYear)) rows = rows.filter(r => parseNum(r[yearCol]) === targetYear);
+      }
+
+      const map = new Map();
+      rows.forEach(r => {
+        const st = stdState(r[stateCol]);
+        const v  = parseNum(r[valueCol]);
+        if (!st || !Number.isFinite(v)) return;
+        map.set(st, (map.get(st) || 0) + v);
+      });
+
+      console.log(`[${key}] Using columns`, { stateCol, yearCol, valueCol, targetYear, size: map.size });
+      cached[key] = { map, year: targetYear };
+    }
+
+    // ===== Layout & render =====
+    function sizeSvg(){
+      const w = wrap.node().clientWidth || 900;
+      const h = Math.max(420, Math.round(w * 0.62));
+      svg.attr("width", w).attr("height", h);
+      return { w, h };
+    }
+
+    function drawPaths() {
+      const sel = g.selectAll("path")
+        .data(features, d => (d.properties?.STATE_NAME || d.properties?.STE_NAME16 || d.id));
+
+      sel.join("path")
+        .attr("stroke","rgba(255,255,255,0.28)")
+        .attr("stroke-width",1)
+        .attr("fill","rgba(255,255,255,0.06)")
+        .attr("d", path) // set 'd' immediately to avoid "only after zoom" bug
+        .style("cursor","pointer")
+        .on("mouseenter", function(event, d) {
+          const pathEl = d3.select(this);
+          const originalFill = pathEl.attr("fill");
+          pathEl.attr("data-original-fill", originalFill);
+          
+          // Brighten the state on hover
+          const rgb = d3.rgb(originalFill);
+          const brightened = rgb.brighter(0.6);
+          
+          pathEl.transition().duration(250)
+            .attr("fill", brightened)
+            .attr("stroke","rgba(255,255,255,0.9)")
+            .attr("stroke-width",2.5)
+            .style("filter","drop-shadow(0 0 10px rgba(255,255,255,0.4))");
+        })
+        .on("mousemove", (event, d) => {
+          const { left, top } = svg.node().getBoundingClientRect();
+          const name = (d.properties.STATE_NAME || d.properties.STE_NAME16 || d.properties.NAME || d.properties.name || "").trim();
+          const key  = stdState(name);
+          const cfg  = DATASETS[currentDataset];
+          const pack = cached[currentDataset] || { map:new Map(), year:null };
+          const v    = pack.map.get(key);
+          const valueHtml = currentDataset==="empty" ? "" : (Number.isFinite(v) ? cfg.format(v) : "<em>No data</em>");
+          const yearHtml  = (currentDataset!=="empty" && pack.year) ? ` â€¢ ${pack.year}` : "";
+
+          if (currentDataset === "empty"){ tooltip.attr("aria-hidden","true"); return; }
+
+          tooltip
+            .style("left", (event.clientX - left + 14) + "px")
+            .style("top",  (event.clientY - top  + 14) + "px")
+            .attr("aria-hidden","false")
+            .html(`
+              <div style="font-weight:700;margin-bottom:2px">${name}</div>
+              <div style="font-size:12px;opacity:.8">${cfg.label}${yearHtml}</div>
+              <div style="margin-top:4px;font-weight:600">${valueHtml}</div>
+            `);
+        })
+        .on("mouseleave", function() {
+          const pathEl = d3.select(this);
+          const originalFill = pathEl.attr("data-original-fill") || pathEl.attr("fill");
+          
+          pathEl.transition().duration(250)
+            .attr("fill", originalFill)
+            .attr("stroke","rgba(255,255,255,0.28)")
+            .attr("stroke-width",1)
+            .style("filter","none");
+          
+          tooltip.attr("aria-hidden","true");
+        });
+    }
+
+    function recolor() {
+      const cfg  = DATASETS[currentDataset];
+      const pack = cached[currentDataset] || { map:new Map(), year:null };
+
+      if (currentDataset === "empty"){
+        g.selectAll("path").transition().duration(400)
+          .attr("fill","rgba(255,255,255,0.06)");
+        tooltip.attr("aria-hidden","true");
+        return;
+      }
+
+      const values = Array.from(pack.map.values());
+      const max = d3.max(values) || 1;
+      const colorScale = d3.scaleSequential((t)=>cfg.color(Math.min(1,Math.max(0,t)))).domain([0, max]);
+
+      g.selectAll("path").transition().duration(500)
+        .attr("fill", d => {
+          const state = stdState(d.properties.STATE_NAME || d.properties.STE_NAME16 || d.properties.NAME || d.properties.name);
+          const v = pack.map.get(state);
+          return Number.isFinite(v) ? colorScale(v) : "rgba(255,255,255,0.06)";
+        });
+    }
+
+    function fitAndRender(){
+      sizeSvg();
+      projection.fitSize([svg.attr("width"), svg.attr("height")], { type:"FeatureCollection", features });
+      path = d3.geoPath().projection(projection);
+      drawPaths();
+      recolor();
+    }
+
+    async function init(){
+      svg = wrap.append("svg").attr("class","map-svg");
+      g   = svg.append("g").attr("class","map-layer");
+      projection = d3.geoMercator();
+
+      const geo = await d3.json(GEO_URL).catch(e => (console.error(e), null));
+      if (!geo || !Array.isArray(geo.features)) { banner("Couldnâ€™t load GeoJSON."); return; }
+      features = geo.features;
+
+      // First render pass
+      fitAndRender();
+
+      // Default to No Data button active on load
+      d3.select('.map-buttons button[data-ds="empty"]').classed("active", true);
+
+      // Buttons (including â€œNo Dataâ€)
+      buttons.on("click", async function(){
+        const id = this.dataset.ds;
+        if (!DATASETS[id]) return;
+        buttons.classed("active", false);
+        d3.select(this).classed("active", true);
+
+        currentDataset = id;
+        if (id !== "empty"){ await ensureDataset(id); }
+        recolor();
+      });
+
+      // Keep map correct on container size changes
+      const ro = new ResizeObserver(() => fitAndRender());
+      ro.observe(wrap.node());
+      window.addEventListener("resize", fitAndRender, { passive:true });
+    }
+
+    init();
+  })();
+  </script>
+</body>
+</html>
+
+
