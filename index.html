@@ -67,7 +67,7 @@
   </footer>
 
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <script src="JS/theme.js"></script>
+  <script src="js/theme.js"></script>
   <script>
   (() => {
     // ===== Paths (match your folder tree) =====
@@ -224,7 +224,7 @@
 
       const { stateCol, yearCol, valueCol } = detectColumns(rows);
       if (!stateCol || !valueCol){
-        banner(`Couldn’t detect columns in ${cfg.file}. Ensure it has state & value columns.`);
+        banner(`Couldn't detect columns in ${cfg.file}. Ensure it has state & value columns.`);
         cached[key] = { map:new Map(), year:null };
         return;
       }
@@ -290,7 +290,7 @@
           const v    = pack.map.get(key);
           const valueHtml = (Number.isFinite(v) ? cfg.format(v) : "<em>No data</em>");
           // The tooltip uses the label defined in the DATASETS object (e.g., "Total Combined Enforcement Count")
-          const yearHtml  = (pack.year && currentDataset !== "empty") ? ` â€¢ Latest Year: ${pack.year}` : "";
+          const yearHtml  = (pack.year && currentDataset !== "empty") ? ` - Latest Year: ${pack.year}` : "";
 
           tooltip
             .style("left", (event.clientX - left + 14) + "px")
@@ -358,7 +358,7 @@
       projection = d3.geoMercator();
 
       const geo = await d3.json(GEO_URL).catch(e => (console.error(e), null));
-      if (!geo || !Array.isArray(geo.features)) { banner("Couldn’t load GeoJSON."); return; }
+      if (!geo || !Array.isArray(geo.features)) { banner("Couldn't load GeoJSON."); return; }
       features = geo.features;
 
       // First render pass
@@ -370,7 +370,7 @@
       // Default to Overview button active on load
       d3.select('.map-buttons button[data-ds="overview"]').classed("active", true);
 
-      // Buttons (including “Overview”)
+      // Buttons (including "Overview")
       buttons.on("click", async function(){
         const id = this.dataset.ds;
         if (!DATASETS[id]) return;
@@ -470,3 +470,10 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
