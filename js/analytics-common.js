@@ -2,6 +2,69 @@
 // Usage: AnalyticsPage.loadThree({ line:{src,x,y}, bar:{src,cat,val}, pie:{src,cat,val} })
 (function (global) {
   const fmt = d3.format(",");
+  const readStyles = () => getComputedStyle(document.documentElement);
+  const resolveColors = (overrides = {}) => {
+    const styles = readStyles();
+    const pie = [];
+    for (let i = 1; i <= 12; i++) {
+      const val = styles.getPropertyValue(`--chart-pie-${i}`).trim();
+      if (val) pie.push(val);
+    }
+    if (!pie.length) {
+      pie.push("#56e0a0", "#d869c6", "#f2c14e", "#6c5b7b", "#45b7d1", "#f67280");
+    }
+    return {
+      bar: overrides.bar || styles.getPropertyValue('--chart-bar').trim() || "#7aa294",
+      line: overrides.line || styles.getPropertyValue('--chart-line').trim() || "#56e0a0",
+      pie: Array.isArray(overrides.pie) && overrides.pie.length ? overrides.pie : pie
+    };
+  };
+
+  const cloneVal = (val) => {
+    if (Array.isArray(val)) return val.map(cloneVal);
+    if (val && typeof val === "object") return { ...val };
+    return val;
+  };
+  let lastArgs = null;
+  let currentPalette = null;
+
+  function applyPalette(palette){
+    if (!palette) return;
+    const t = d3.transition().duration(500);
+
+    const barSVG = d3.select("#barChart");
+    if (!barSVG.empty()){
+      barSVG.selectAll("rect.bar").transition(t).attr("fill", palette.bar);
+    }
+
+    const lineSVG = d3.select("#lineChart");
+    if (!lineSVG.empty()){
+      const linePaths = lineSVG.selectAll("path.line-path");
+      linePaths.transition(t).attr("stroke", palette.line);
+      linePaths.each(function(){ this._baseColor = palette.line; });
+
+      const linePoints = lineSVG.selectAll("circle.line-point");
+      linePoints.transition(t).attr("fill", palette.line);
+      linePoints.each(function(){
+        this._originalFill = palette.line;
+      });
+    }
+
+    const pieSVG = d3.select("#pieChart");
+    const pieNode = pieSVG.node();
+    if (pieNode && pieNode.__pieLastData && Array.isArray(pieNode.__pieLastData)){
+      const labels = pieNode.__pieLastData.map(d=>d[0]);
+      const color = d3.scaleOrdinal().domain(labels).range(palette.pie);
+      pieSVG.selectAll("path.pie-slice").transition(t).attr("fill", function(d){
+        const label = d?.data?.[0] ?? d?.[0];
+        const col = color(label);
+        this._originalFill = col;
+        return col;
+      });
+      const legend = d3.select(pieNode.parentNode).selectAll(".pie-legend .item");
+      legend.select(".swatch").transition(t).style("background", d => color(d));
+    }
+  }
 
   // ---- helpers ----
   const aliasState = (s) => {
@@ -136,22 +199,21 @@
     g.append("g").call(d3.axisLeft(y).ticks(6));
 
     const line = d3.line().x(d=>x(d[0])).y(d=>y(d[1]));
-    const path = g.append("path").datum(data)
+    const path = g.append("path").datum(data).attr("class","line-path")
       .attr("fill","none")
       .attr("stroke",color)
       .attr("stroke-width",2)
       .attr("d",line)
       .style("cursor","pointer")
       .style("filter","none");
+    path.each(function(){ this._baseColor = color; });
     const L = path.node().getTotalLength();
     path.attr("stroke-dasharray",`${L} ${L}`).attr("stroke-dashoffset",L).transition().duration(800).attr("stroke-dashoffset",0);
 
-    // Store original line color for hover effects
-    const originalLineColor = color;
-
     // Add hover effect to line path
     path.on("mouseenter",function(){
-      const rgb = d3.rgb(originalLineColor);
+      const base = this._baseColor || color;
+      const rgb = d3.rgb(base);
       const brightened = rgb.brighter(0.4);
       d3.select(this).transition().duration(250)
         .attr("stroke",brightened)
@@ -159,13 +221,15 @@
         .style("filter","drop-shadow(0 0 8px rgba(86,224,160,0.5))");
     })
     .on("mouseleave",function(){
+      const base = this._baseColor || color;
       d3.select(this).transition().duration(250)
-        .attr("stroke",originalLineColor)
+        .attr("stroke",base)
         .attr("stroke-width",2)
         .style("filter","none");
     });
 
     g.selectAll("circle").data(data).join("circle")
+      .attr("class","line-point")
       .attr("cx",d=>x(d[0]))
       .attr("cy",d=>y(d[1]))
       .attr("r",3.8)
@@ -196,7 +260,8 @@
           .style("filter","drop-shadow(0 0 10px rgba(255,255,255,0.5))");
         
         // Also brighten the line on hover
-        const lineRgb = d3.rgb(originalLineColor);
+        const baseLine = (path.node() && path.node()._baseColor) || color;
+        const lineRgb = d3.rgb(baseLine);
         const lineBrightened = lineRgb.brighter(0.3);
         path.transition().duration(250)
           .attr("stroke",lineBrightened)
@@ -218,8 +283,9 @@
           .style("filter","none");
         
         // Restore line appearance
+        const baseLine = (path.node() && path.node()._baseColor) || color;
         path.transition().duration(250)
-          .attr("stroke",originalLineColor)
+          .attr("stroke",baseLine)
           .attr("stroke-width",2);
         
         hideTip();
@@ -246,8 +312,8 @@
 
     const filtered = data.filter(d => !hidden.has(d[0]) && d[1] > 0);
 
-    g.selectAll("path").data(pie(filtered), d=>d.data[0]).join(
-      enter=>enter.append("path")
+    const paths = g.selectAll("path").data(pie(filtered), d=>d.data[0]).join(
+      enter=>enter.append("path").attr("class","pie-slice")
         .attr("fill",d=>color(d.data[0]))
         .attr("stroke","none")
         .attr("stroke-width",0)
@@ -335,9 +401,16 @@
           hideTip();
         })
         .call(e=>e.transition().duration(700).attrTween("d",d=>{const i=d3.interpolate({startAngle:d.startAngle,endAngle:d.startAngle},d);return t=>arc(i(t));})),
-      update=>update.call(u=>u.transition().duration(600).attrTween("d",function(d){const i=d3.interpolate(this._current,d);this._current=i(1);return t=>arc(i(t));})),
+      update=>update.call(u=>u
+        .attr("fill",d=>color(d.data[0]))
+        .each(function(d){ this._originalFill = color(d.data[0]); })
+        .transition().duration(600).attrTween("d",function(d){const i=d3.interpolate(this._current,d);this._current=i(1);return t=>arc(i(t));})),
       exit=>exit.call(x=>x.transition().duration(400).attrTween("d",function(d){const i=d3.interpolate(this._current,{startAngle:d.endAngle,endAngle:d.endAngle});return t=>arc(i(t));}).remove())
     );
+
+    paths.each(function(d){
+      this._originalFill = color(d.data[0]);
+    }).attr("fill",d=>color(d.data[0]));
 
     // Legend (below the pie, clickable to toggle)
     const wrap = d3.select(node.parentNode);
@@ -361,7 +434,23 @@
   }
 
   // ---- main loader with explicit mapping ----
-  async function loadThree({ line, bar, pie, colors = {} }) {
+  function refreshPaletteFromTheme(){
+    if (!lastArgs) return;
+    const palette = resolveColors(lastArgs.colors || {});
+    currentPalette = palette;
+    applyPalette(palette);
+  }
+
+  async function loadThree(args) {
+    const { line, bar, pie, colors = {} } = args;
+    lastArgs = {
+      line: cloneVal(line),
+      bar: cloneVal(bar),
+      pie: cloneVal(pie),
+      colors: cloneVal(colors)
+    };
+
+    const palette = resolveColors(colors);
     const barSVG=d3.select("#barChart"), lineSVG=d3.select("#lineChart"), pieSVG=d3.select("#pieChart");
     const kpiTotal=document.getElementById("kpiTotal"), kpiMax=document.getElementById("kpiMax"), kpiMin=document.getElementById("kpiMin");
     const tbody=d3.select("#tbl tbody");
@@ -393,7 +482,7 @@
       if (!hasFinesControls) {
         // Generic bar data for other pages
         barAll = b.map(r=>[aliasState(r[cat]), toNum(r[val])]).filter(d=>d[0] && Number.isFinite(d[1]));
-        renderBar(barSVG, barAll, colors.bar || "#7aa294");
+      renderBar(barSVG, barAll, palette.bar);
       } else {
         // Precompute totals and unique metrics (fines)
         barAll = b.map(r=>{
@@ -459,7 +548,7 @@
           if (!chosen.length) chosen = topOrder.slice(0,max);
           else if (chosen.length > max) chosen = chosen.slice(0,max);
           const data = barAll.filter(d => chosen.includes(d[0]));
-          renderBar(barSVG, data, colors.bar || "#7aa294");
+          renderBar(barSVG, data, palette.bar);
         };
 
         initBarFilters();
@@ -558,7 +647,7 @@
           return Number.isFinite(yy) && yy === want;
         });
       }
-      renderLine(lineSVG, lrows, x, y, colors.line || "#56e0a0");
+      renderLine(lineSVG, lrows, x, y, palette.line);
 
       
       
@@ -572,7 +661,7 @@
       const selTop = document.getElementById('pieTopN');
       const getTopN = () => Math.max(1, Math.min(10, parseInt(selTop?.value||'6',10) || 6));
 
-      const pieScheme = Array.isArray(colors.pie) ? colors.pie : (colors.pie ? [colors.pie] : null);
+      const pieScheme = palette.pie;
 
       const buildPieData = () => {
         // Aggregate whole dataset by category
@@ -617,9 +706,14 @@
     } catch (err) {
       console.error("Error loading analytics CSVs:", err);
     }
+    currentPalette = palette;
   }
 
-  global.AnalyticsPage = { loadThree };
+  global.AnalyticsPage = {
+    loadThree,
+    refreshPalette: refreshPaletteFromTheme
+  };
+  global.addEventListener?.('colorSchemeChanged', refreshPaletteFromTheme);
 
   // ======== Enhance selects to always open downward ========
   // Wraps #yearFrom and #yearTo with a custom menu that opens below the control.
@@ -852,3 +946,40 @@
     ['yearFrom','yearTo','barCompareCount','pieTopN'].forEach(enhanceSelectDown);
   });
 })(window);
+
+// ==========================================
+// ===== GLOW EFFECT (Robust / Async) =====
+// ==========================================
+document.addEventListener("DOMContentLoaded", () => {
+  // 1. Check if there is a hash (e.g., #pieChart)
+  if (window.location.hash) {
+    const targetId = window.location.hash.substring(1); // remove '#'
+    
+    // 2. Poll for the element every 100ms (Wait for D3 to render it)
+    const waitForElement = setInterval(() => {
+      const targetElement = document.getElementById(targetId);
+      
+      // If found, stop checking and run the glow logic
+      if (targetElement) {
+        clearInterval(waitForElement);
+        
+        const chartContainer = targetElement.closest('.chart');
+        if (chartContainer) {
+          // Scroll roughly to center
+          chartContainer.scrollIntoView({ behavior: "smooth", block: "center" });
+
+          // Add glow class
+          chartContainer.classList.add("chart-highlight");
+
+          // Remove after 3 seconds
+          setTimeout(() => {
+            chartContainer.classList.remove("chart-highlight");
+          }, 3000);
+        }
+      }
+    }, 100); // Check every 0.1 seconds
+
+    // 3. Safety timeout: Stop checking after 8 seconds if not found
+    setTimeout(() => clearInterval(waitForElement), 8000);
+  }
+});

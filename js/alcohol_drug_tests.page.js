@@ -8,21 +8,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const cfg = {
     line: { src: "csv/data 1 - alcohol and drug test.csv" },
     bar:  "csv/data 2 - alcohol and drug test.csv",
-    pie:  "csv/data 3 - alcohol and drug test.csv",
-    colors: {
-      line: "#56e0a0",
-      bar:  "#7aa294",
-      pie:  ["#2f2a5a", "#463f85", "#5f57a8", "#7a70c6", "#9a93db", "#beb8ec"]
-    }
+    pie:  "csv/data 3 - alcohol and drug test.csv"
   };
 
   const selFrom = document.getElementById('yearFrom');
   const selTo   = document.getElementById('yearTo');
-
   function renderForRange(lo, hi){
     if (lo == null || hi == null) { AnalyticsPage.loadThree(cfg); return; }
     const lineCfg = Object.assign({}, cfg.line, { filterRange: [lo, hi] });
-    AnalyticsPage.loadThree({ line: lineCfg, bar: cfg.bar, pie: cfg.pie, colors: cfg.colors });
+    AnalyticsPage.loadThree({ line: lineCfg, bar: cfg.bar, pie: cfg.pie });
   }
 
   if (selFrom && selTo) {
@@ -92,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     AnalyticsPage.loadThree(cfg);
   }
+
 });
 
 

@@ -8,21 +8,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const cfg = {
     line: { src: "csv/data 1 - positive breath test.csv", x: "START_DATE", y: "Sum(COUNT)" },
     bar:  { src: "csv/data 2 - positive breath test.csv",  cat: "JURISDICTION", val: "Sum(COUNT)" },
-    pie:  { src: "csv/data 3 - positive breath test.csv",  cat: "JURISDICTION", val: "Mean(Arrest_Rate_Percent)" },
-    colors: {
-      line: "#56e0a0",
-      bar:  "#7aa294",
-      pie:  ["#145a4a", "#1f7a64", "#2fa182", "#56e0a0", "#8ef0c5", "#c7fae6"]
-    }
+    pie:  { src: "csv/data 3 - positive breath test.csv",  cat: "JURISDICTION", val: "Mean(Arrest_Rate_Percent)" }
   };
 
   const selFrom = document.getElementById('yearFrom');
   const selTo   = document.getElementById('yearTo');
-
   function renderForRange(lo, hi){
     if (lo == null || hi == null) { AnalyticsPage.loadThree(cfg); return; }
     const lineCfg = Object.assign({}, cfg.line, { filterRange: [lo, hi] });
-    AnalyticsPage.loadThree({ line: lineCfg, bar: cfg.bar, pie: cfg.pie, colors: cfg.colors });
+    AnalyticsPage.loadThree({ line: lineCfg, bar: cfg.bar, pie: cfg.pie });
   }
 
   if (selFrom && selTo) {
@@ -96,4 +90,5 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     AnalyticsPage.loadThree(cfg);
   }
+
 });

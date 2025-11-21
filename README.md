@@ -1,5 +1,11 @@
-# Road Safety Enforcement Data Visualization
-# Road Safety Enforcement Data Visualization-Group32
+# Road Safety Enforcement Data Visualization 32
+
+**Group Name:** Group 32
+
+**Group Members:**
+- Harnihal Singh Thandi – 105996395
+- Joshua Fernandez – 105735912
+- Swan Htet Naing – 105684917
 
 ## About the Website
 
@@ -27,6 +33,63 @@ This website is a comprehensive data visualization platform for Australian road 
 - **KNIME**: Data processing and workflow management
 - **HTML/CSS/JavaScript**: Frontend development
 - **BITRE Datasets**: Australian road safety enforcement data
+
+---
+
+## Project Summary
+
+This project is a comprehensive web-based data visualization platform for Australian road safety enforcement data. The platform has been fully developed and includes:
+
+### Completed Features
+
+1. **Interactive Homepage Map**
+   - Interactive Australian map visualization using D3.js
+   - Support for multiple datasets (Positive Breath Tests, Positive Drug Tests, Alcohol & Drug Tests)
+   - Hover tooltips with detailed state information
+   - Color-coded visualizations with smooth transitions
+   - Automatic column detection for flexible data loading
+   - Year filtering with automatic latest year selection
+
+2. **Analytics Pages (4 Complete Pages)**
+   - **Fines Page**: Traffic fines analysis with interactive charts
+   - **Positive Breath Tests Page**: Alcohol breath test data visualization
+   - **Positive Drug Tests Page**: Drug test results analysis
+   - **Alcohol & Drug Tests Page**: Combined alcohol and drug testing data
+
+3. **Visualization Components**
+   - **Bar Charts**: State-by-state comparisons with filtering
+   - **Line Charts**: Temporal trends with customizable year ranges
+   - **Pie Charts**: Proportional distribution with configurable top N slices
+   - **Data Tables**: Detailed numerical views alongside visualizations
+   - **KPI Dashboard**: Key performance indicators (Total, Highest State, Lowest State)
+
+4. **Interactive Features**
+   - Year range selection for temporal analysis
+   - Multi-select jurisdiction filtering
+   - Metric comparison capabilities
+   - Reset and filter management controls
+   - Smooth transitions and animations
+   - Responsive design for all screen sizes
+
+5. **Data Management**
+   - Multiple CSV datasets organized by category
+   - Automatic data processing and aggregation
+   - Flexible column detection system
+   - Data caching for performance optimization
+
+6. **User Interface**
+   - Modern, accessible design
+   - Navigation system with dropdown menus
+   - About page with team member profiles
+   - Consistent styling across all pages
+   - Mobile-friendly responsive layout
+
+7. **Technical Implementation**
+   - D3.js for all visualizations
+   - Modular JavaScript architecture (`analytics-common.js` for shared functionality)
+   - Page-specific scripts for data configuration
+   - GeoJSON map data for Australian states
+   - KNIME workflows for data processing (documented)
 
 ---
 
@@ -123,9 +186,9 @@ Each analytics page implements a consistent three-chart approach:
 
 ## Team Members
 
-- **Harnihal** - Project Lead
-- **Joshua**- Data Engineer (105735912)
-- **SwanHtet** - Visualization Specialist 
+- **Harnihal Singh Thandi (105996395)** - Project Lead
+- **Joshua Fernandez (105735912)** - Data Engineer
+- **Swan Htet Naing (105684917)** - Visualization Specialist 
 
 ---
 

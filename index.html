@@ -3,11 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Home â€” Road Safety Enforcement</title>
+  <title>Home-Road Safety Enforcement</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- NAV -->
   <header class="global-nav">
     <nav class="nav-wrap">
             <a href="index.html" class="logo" aria-label="Home">
@@ -26,27 +25,35 @@
           </div>
         </li>
       </ul>
+      <div class="nav-actions">
+        <label for="colorSchemeSelect" class="sr-only">Color scheme</label>
+        <select id="colorSchemeSelect" class="color-scheme-select" aria-label="Color scheme"></select>
+      </div>
     </nav>
   </header>
 
-  <!-- HEADER -->
   <main>
-    <section class="contain" style="padding:36px 0 8px">
+    <section class="contain hero-block" style="padding:36px 0 8px">
       <h1 style="margin:0;font-size:clamp(28px,6vw,48px);line-height:1.06">Road Safety Enforcement</h1>
-      <p class="sub" style="max-width:780px;margin:8px 0 0">
-        Hover to see values. Use the buttons to switch datasets. â€œNo Dataâ€ clears the map.
+      <p class="sub" style="max-width:720px;margin:12px auto 0;line-height:1.5">
+        The map currently displays the <strong>Total Combined Enforcement Count</strong> by jurisdiction. Use the buttons below to switch datasets.
       </p>
     </section>
 
-    <!-- MAP + BUTTONS -->
+    <section class="contain" style="padding:16px 0;">
+      <h2 style="margin:0 0 12px; font-size:24px; text-align:center;">Search Analytics</h2>
+      <div class="search-wrap">
+        <input type="text" id="analytics-search" placeholder="e.g., Fines, Breath Tests, Pie Chart..." />
+      </div>
+    </section>
+
     <section class="section contain" style="padding-top:18px">
       <div class="map-card card">
         <div id="map-aus" class="map-wrap"></div>
         <div id="map-tooltip" class="map-tooltip" role="tooltip" aria-hidden="true"></div>
 
-        <!-- bottom-left buttons -->
         <div class="map-buttons">
-          <button data-ds="empty" class="active">No Data</button>
+          <button data-ds="overview" class="active">Overview</button>
           <button data-ds="breath">Positive Breath Tests</button>
           <button data-ds="drug">Positive Drug Tests</button>
           <button data-ds="alcohol">Alcohol &amp; Drug Tests</button>
@@ -56,21 +63,32 @@
   </main>
 
   <footer class="contain footer">
-    <p>Â© 2025 Group 32 â€” Road Safety Enforcement</p>
+    <p>Group 32 - Road Safety Enforcement</p>
   </footer>
 
-  <!-- D3 + MAP SCRIPT -->
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="JS/theme.js"></script>
   <script>
   (() => {
     // ===== Paths (match your folder tree) =====
     const GEO_URL = "data/aus-states.geojson";
+    const MAP_FALLBACK = {
+      breath:  { start:"#0e2922", end:"#7aa294" },
+      drug:    { start:"#2b1a12", end:"#b98a6e" },
+      alcohol: { start:"#1d1730", end:"#b7a3d9" },
+      overview:{ start:"#400040", end:"#e6b3ff" }
+    };
+    const mapRamp = (key, t) => {
+      const styles = getComputedStyle(document.documentElement);
+      const start = styles.getPropertyValue(`--map-${key}-start`).trim() || MAP_FALLBACK[key].start;
+      const end = styles.getPropertyValue(`--map-${key}-end`).trim() || MAP_FALLBACK[key].end;
+      return d3.interpolateRgb(start, end)(t);
+    };
     const DATASETS = {
-      // Dark & muted color ramps (eye-friendly)
-      breath:  { file: "csv/data 2 - positive breath test.csv",  label: "Positive Breath Tests",  color: t => d3.interpolateRgb("#0e2922","#7aa294")(t), format: d3.format(",") },
-      drug:    { file: "csv/data 2 - positive drug test.csv",    label: "Positive Drug Tests",    color: t => d3.interpolateRgb("#2b1a12","#b98a6e")(t), format: d3.format(",") },
-      alcohol: { file: "csv/data 2 - alcohol and drug test.csv", label: "Alcohol & Drug Tests",   color: t => d3.interpolateRgb("#1d1730","#b7a3d9")(t), format: d3.format(",") },
-      empty:   { file: null, label: "No Data", color: () => "rgba(255,255,255,0.06)", format: d3.format(",") }
+      breath:  { file: "csv/data 2 - positive breath test.csv",  label: "Positive Breath Tests",  color: t => mapRamp("breath", t), format: d3.format(",") },
+      drug:    { file: "csv/data 2 - positive drug test.csv",    label: "Positive Drug Tests",    color: t => mapRamp("drug", t), format: d3.format(",") },
+      alcohol: { file: "csv/data 2 - alcohol and drug test.csv", label: "Alcohol & Drug Tests",   color: t => mapRamp("alcohol", t), format: d3.format(",") },
+      overview:{ file: null, label: "Total Combined Enforcement Count", color: t => mapRamp("overview", t), format: d3.format(",") }
     };
 
     const wrap    = d3.select("#map-aus");
@@ -79,7 +97,7 @@
 
     let svg, g, features, projection, path;
     let cached = {};                 // key -> { map: Map(state->value), year: number|null }
-    let currentDataset = "empty";    // default to No Data
+    let currentDataset = "overview";    // default to Overview
     let currentMap = new Map();
     let currentYear = null;
 
@@ -145,9 +163,60 @@
       return { stateCol, yearCol, valueCol };
     }
 
+    // New function to calculate the combined enforcement count
+    async function ensureOverviewDataset(){
+        if (cached["overview"] && cached["overview"].map.size > 0) return;
+
+        const combinedMap = new Map();
+        let maxYear = 0;
+
+        // 1. Load and aggregate all three source datasets
+        for (const key of ["breath", "drug", "alcohol"]) {
+            const cfg = DATASETS[key];
+            if (!cfg.file) continue;
+
+            let rows = await d3.csv(cfg.file).catch(e => (console.error(e), []));
+            if (!rows.length) continue;
+
+            const { stateCol, yearCol, valueCol } = detectColumns(rows);
+            if (!stateCol || !valueCol) {
+                console.warn(`[Overview] Missing columns for ${key}. Skipping.`);
+                continue;
+            }
+
+            // Find the latest year for this dataset
+            let targetYear = null;
+            if (yearCol) {
+                const years = rows.map(r => parseNum(r[yearCol])).filter(Number.isFinite);
+                if (years.length) targetYear = d3.max(years);
+                // Filter rows to only include the latest year data for accurate aggregation
+                if (Number.isFinite(targetYear)) rows = rows.filter(r => parseNum(r[yearCol]) === targetYear);
+                maxYear = Math.max(maxYear, targetYear);
+            }
+
+            // Aggregate values into the combined map
+            rows.forEach(r => {
+                const st = stdState(r[stateCol]);
+                const v = parseNum(r[valueCol]);
+                if (!st || !Number.isFinite(v)) return;
+                // Add the value to the existing total for this state
+                combinedMap.set(st, (combinedMap.get(st) || 0) + v);
+            });
+        }
+
+        cached["overview"] = { map: combinedMap, year: (maxYear > 0 ? maxYear : null) };
+        console.log(`[Overview] Aggregated data for ${combinedMap.size} states. Max Year: ${maxYear}`);
+    }
+
     async function ensureDataset(key){
+      if (key === "overview"){
+          await ensureOverviewDataset();
+          return;
+      }
+
       if (cached[key]) return;
       const cfg = DATASETS[key];
+      // Original logic for "empty" (which is now replaced by "overview" as the default load)
       if (!cfg.file){ cached[key] = { map:new Map(), year:null }; return; }
 
       let rows = await d3.csv(cfg.file).catch(e => (console.error(e), []));
@@ -155,7 +224,7 @@
 
       const { stateCol, yearCol, valueCol } = detectColumns(rows);
       if (!stateCol || !valueCol){
-        banner(`Couldnâ€™t detect columns in ${cfg.file}. Ensure it has state & value columns.`);
+        banner(`Couldn’t detect columns in ${cfg.file}. Ensure it has state & value columns.`);
         cached[key] = { map:new Map(), year:null };
         return;
       }
@@ -219,10 +288,9 @@
           const cfg  = DATASETS[currentDataset];
           const pack = cached[currentDataset] || { map:new Map(), year:null };
           const v    = pack.map.get(key);
-          const valueHtml = currentDataset==="empty" ? "" : (Number.isFinite(v) ? cfg.format(v) : "<em>No data</em>");
-          const yearHtml  = (currentDataset!=="empty" && pack.year) ? ` â€¢ ${pack.year}` : "";
-
-          if (currentDataset === "empty"){ tooltip.attr("aria-hidden","true"); return; }
+          const valueHtml = (Number.isFinite(v) ? cfg.format(v) : "<em>No data</em>");
+          // The tooltip uses the label defined in the DATASETS object (e.g., "Total Combined Enforcement Count")
+          const yearHtml  = (pack.year && currentDataset !== "empty") ? ` â€¢ Latest Year: ${pack.year}` : "";
 
           tooltip
             .style("left", (event.clientX - left + 14) + "px")
@@ -249,24 +317,29 @@
     }
 
     function recolor() {
+      if (!g) return;
       const cfg  = DATASETS[currentDataset];
       const pack = cached[currentDataset] || { map:new Map(), year:null };
 
-      if (currentDataset === "empty"){
+      // Check if data is truly empty, even for Overview (max will be 0)
+      const values = Array.from(pack.map.values());
+      const max = d3.max(values) || 0;
+      const isDataEmpty = max === 0;
+
+      if (isDataEmpty) {
         g.selectAll("path").transition().duration(400)
           .attr("fill","rgba(255,255,255,0.06)");
         tooltip.attr("aria-hidden","true");
         return;
       }
 
-      const values = Array.from(pack.map.values());
-      const max = d3.max(values) || 1;
       const colorScale = d3.scaleSequential((t)=>cfg.color(Math.min(1,Math.max(0,t)))).domain([0, max]);
 
       g.selectAll("path").transition().duration(500)
         .attr("fill", d => {
           const state = stdState(d.properties.STATE_NAME || d.properties.STE_NAME16 || d.properties.NAME || d.properties.name);
           const v = pack.map.get(state);
+          // Highlight high statistics: darker colors mean higher values (as per the sequential scale)
           return Number.isFinite(v) ? colorScale(v) : "rgba(255,255,255,0.06)";
         });
     }
@@ -285,16 +358,19 @@
       projection = d3.geoMercator();
 
       const geo = await d3.json(GEO_URL).catch(e => (console.error(e), null));
-      if (!geo || !Array.isArray(geo.features)) { banner("Couldnâ€™t load GeoJSON."); return; }
+      if (!geo || !Array.isArray(geo.features)) { banner("Couldn’t load GeoJSON."); return; }
       features = geo.features;
 
       // First render pass
       fitAndRender();
+      // Load default 'overview' data immediately
+      await ensureDataset("overview");
+      recolor();
 
-      // Default to No Data button active on load
-      d3.select('.map-buttons button[data-ds="empty"]').classed("active", true);
+      // Default to Overview button active on load
+      d3.select('.map-buttons button[data-ds="overview"]').classed("active", true);
 
-      // Buttons (including â€œNo Dataâ€)
+      // Buttons (including “Overview”)
       buttons.on("click", async function(){
         const id = this.dataset.ds;
         if (!DATASETS[id]) return;
@@ -302,7 +378,7 @@
         d3.select(this).classed("active", true);
 
         currentDataset = id;
-        if (id !== "empty"){ await ensureDataset(id); }
+        await ensureDataset(id);
         recolor();
       });
 
@@ -313,9 +389,84 @@
     }
 
     init();
+    window.addEventListener('colorSchemeChanged', () => { recolor(); });
+
+
+    // ===== NEW SEARCH FUNCTIONALITY (With Glow Links) =====
+    const SEARCH_OPTIONS = [
+      // --- Pages ---
+      { name: "Page: Fines", url: "fines.html" },
+      { name: "Page: Positive Breath Tests", url: "positive_breath_tests.html" },
+      { name: "Page: Positive Drug Tests", url: "positive_drug_tests.html" },
+      { name: "Page: Alcohol & Drug Tests", url: "alcohol_drug_tests.html" },
+      { name: "Page: About Us", url: "about.html" },
+      
+      // --- Specific Charts (Fines) ---
+      { name: "Fines: Top States (Bar Chart)", url: "fines.html#barChart" },
+      { name: "Fines: Total Over Time (Line Chart)", url: "fines.html#lineChart" },
+      { name: "Fines: Share by State (Pie Chart)", url: "fines.html#pieChart" },
+
+      // --- Specific Charts (Breath Tests) ---
+      { name: "Breath Tests: Top States (Bar Chart)", url: "positive_breath_tests.html#barChart" },
+      { name: "Breath Tests: Total Over Time (Line Chart)", url: "positive_breath_tests.html#lineChart" },
+      { name: "Breath Tests: Share by State (Pie Chart)", url: "positive_breath_tests.html#pieChart" },
+
+      // --- Specific Charts (Drug Tests) ---
+      { name: "Drug Tests: Top States (Bar Chart)", url: "positive_drug_tests.html#barChart" },
+      { name: "Drug Tests: Total Over Time (Line Chart)", url: "positive_drug_tests.html#lineChart" },
+      { name: "Drug Tests: Share by State (Pie Chart)", url: "positive_drug_tests.html#pieChart" },
+      
+      // --- Specific Charts (Alcohol & Drug) ---
+      { name: "Alc & Drug: Top States (Bar Chart)", url: "alcohol_drug_tests.html#barChart" },
+      { name: "Alc & Drug: Total Over Time (Line Chart)", url: "alcohol_drug_tests.html#lineChart" },
+      { name: "Alc & Drug: Share by State (Pie Chart)", url: "alcohol_drug_tests.html#pieChart" },
+    ];
+
+    const searchInput = document.getElementById('analytics-search');
+    const searchWrap = document.querySelector('.search-wrap');
+
+    function renderResults(query) {
+      const existingResults = searchWrap.querySelector('.search-results');
+      if (existingResults) existingResults.remove();
+
+      if (!query.trim()) return;
+
+      const filtered = SEARCH_OPTIONS.filter(option =>
+        option.name.toLowerCase().includes(query.toLowerCase())
+      );
+
+      if (filtered.length === 0) return;
+
+      const resultsList = document.createElement('ul');
+      resultsList.className = 'search-results';
+      resultsList.setAttribute('role', 'listbox');
+
+      filtered.forEach(option => {
+        const item = document.createElement('li');
+        item.textContent = option.name;
+        item.setAttribute('role', 'option');
+        item.setAttribute('data-url', option.url);
+        item.onclick = () => {
+          window.location.href = option.url;
+        };
+        resultsList.appendChild(item);
+      });
+
+      searchWrap.appendChild(resultsList);
+    }
+
+    searchInput.addEventListener('input', (e) => {
+      renderResults(e.target.value);
+    });
+
+    // Close results when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!searchWrap.contains(e.target)) {
+        const existingResults = searchWrap.querySelector('.search-results');
+        if (existingResults) existingResults.remove();
+      }
+    });
   })();
   </script>
 </body>
 </html>
-
-
